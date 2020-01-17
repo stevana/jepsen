@@ -8,8 +8,10 @@
              [core :refer [ok-op invoke-op fail-op]]
              [op :as op]]
             [multiset.core :as multiset]
+            [jepsen.checker :as checker]
             [jepsen.checker.perf :as cp]
-            [jepsen.util :as util]))
+            [jepsen.util :as util])
+  (:import (knossos.model Model)))
 
 (deftest unhandled-exceptions-test
   (let [e1 (datafy (IllegalArgumentException. "bad args"))
@@ -676,3 +678,35 @@
                ;
                ; t 0  1   2  3  4    5   6  7  8    9
                (c [a0 a0' a1 r2 r2'1 a1' r2 r3 r3'1 r2'0])))))))
+
+(defrecord TurnstileModel [state]
+  Model
+  (step [_model op]
+    (case (:f op)
+      :coin (if (= state :locked)
+              (TurnstileModel. :unlocked)
+              (assert false "never happens"))
+      :push (if (= state :unlocked)
+              (TurnstileModel. :locked)
+              (assert false "also never happens")))))
+
+(deftest linearizeable-stepping-non-prefixes
+  (let [model (TurnstileModel. :locked)
+        history [{:process 0, :type :invoke, :f :coin}
+                 {:process 0, :type :ok,     :f :coin}
+                 {:process 0, :type :invoke, :f :push}
+                 {:process 0, :type :ok,     :f :push}]]
+
+    (testing "reduce"
+      (let [history' (filter op/ok? history)
+            result   (reduce model/step model history')]
+        (is (not (model/inconsistent? result)) (str result))))
+
+    (testing "linearizable"
+      (let [result (checker/check
+                    (checker/linearizable {:model model})
+                    {}
+                    history
+                    {})]
+
+        (is (:valid? result))))))
