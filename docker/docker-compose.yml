@@ -2,6 +2,7 @@ version: '3.7'
 x-node:
   &default-node
   build: ./node
+  image: ${JEPSEN_NODE_IMAGE:-jepsen/node:latest}
   env_file: ./secret/node.env
   privileged: true
   networks:
@@ -14,6 +15,7 @@ services:
     container_name: jepsen-control
     hostname: control
     build: ./control
+    image: ${JEPSEN_CONTROL_IMAGE:-jepsen/control:latest}
     env_file: ./secret/control.env
     privileged: true
     ports:

@@ -6,7 +6,7 @@
 set -o errexit
 set -o pipefail
 set -o nounset
-# set -o xtrace
+set -o xtrace
 
 ERROR() {
     /bin/echo -e "\e[101m\e[97m[ERROR]\e[49m\e[39m" "$@"
@@ -32,6 +32,9 @@ pushd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 HELP=0
 INIT_ONLY=0
+BUILD_ONLY=0
+PULL_AND_PUSH=0
+SKIP_BUILD=0
 DEV=""
 COMPOSE=${COMPOSE:-""}
 RUN_AS_DAEMON=0
@@ -48,6 +51,18 @@ do
             ;;
         --init-only)
             INIT_ONLY=1
+            shift # past argument
+            ;;
+        --build-only)
+            BUILD_ONLY=1
+            shift # past argument
+            ;;
+        --pull-and-push)
+            PULL_AND_PUSH=1
+            shift # past argument
+            ;;
+        --skip-build)
+            SKIP_BUILD=1
             shift # past argument
             ;;
         --dev)
@@ -116,7 +131,7 @@ fi
 rm -rf ./control/jepsen
 mkdir -p ./control/jepsen/jepsen
 # Copy the jepsen directory if we're not mounting the JEPSEN_ROOT
-if [ -n "${DEV}" ]; then
+if [ -z "${DEV}" ]; then
     # Dockerfile does not allow `ADD ..`. So we need to copy it here in setup.
     INFO "Copying .. to control/jepsen"
     (
@@ -135,9 +150,30 @@ exists docker-compose ||
     { ERROR "Please install docker-compose (https://docs.docker.com/compose/install/)";
       exit 1; }
 
-INFO "Running \`docker-compose build\`"
-# shellcheck disable=SC2086
-docker-compose -f docker-compose.yml ${COMPOSE} ${DEV} build
+if [ "${PULL_AND_PUSH}" -eq 1 ] || [ "${SKIP_BUILD}" -eq 1 ]; then
+    INFO "Running \`docker-compose pull\`"
+    # shellcheck disable=SC2086
+    docker-compose -f docker-compose.yml ${COMPOSE} ${DEV} pull control n1 \
+        || WARNING "docker-compose pull failed"
+fi
+
+if [ "${SKIP_BUILD}" -eq 1 ]; then
+    INFO "Skipping \`docker-compose build\`"
+else
+    INFO "Running \`docker-compose build\`"
+    # shellcheck disable=SC2086
+    docker-compose -f docker-compose.yml ${COMPOSE} ${DEV} build
+fi
+
+if [ "${PULL_AND_PUSH}" -eq 1 ]; then
+    INFO "Running \`docker-compose push\`"
+    # shellcheck disable=SC2086
+    docker-compose -f docker-compose.yml ${COMPOSE} ${DEV} push
+fi
+
+if [ "${BUILD_ONLY}" -eq 1 ]; then
+    exit 0
+fi
 
 INFO "Running \`docker-compose up\`"
 if [ "${RUN_AS_DAEMON}" -eq 1 ]; then
